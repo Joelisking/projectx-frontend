@@ -27,10 +27,11 @@ export default function CreateListingPage() {
     location: '',
     isNegotiable: false,
     tags: [] as string[],
-    images: [] as File[],
+    images: [] as (File | string)[], // Support both File objects and URL strings
   });
 
   const [currentTag, setCurrentTag] = useState('');
+  const [imageUrlInput, setImageUrlInput] = useState('');
   const [previewImages, setPreviewImages] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -85,6 +86,32 @@ export default function CreateListingPage() {
       };
       reader.readAsDataURL(file);
     });
+  };
+
+  const addImageUrl = () => {
+    if (!imageUrlInput.trim()) return;
+
+    // Basic URL validation
+    try {
+      new URL(imageUrlInput);
+    } catch {
+      setError('Please enter a valid URL');
+      return;
+    }
+
+    if (formData.images.length >= 5) {
+      setError('You can add a maximum of 5 images');
+      return;
+    }
+
+    setFormData(prev => ({
+      ...prev,
+      images: [...prev.images, imageUrlInput.trim()]
+    }));
+
+    setPreviewImages(prev => [...prev, imageUrlInput.trim()]);
+    setImageUrlInput('');
+    setError(null);
   };
 
   const removeImage = (index: number) => {
@@ -149,8 +176,30 @@ export default function CreateListingPage() {
     }
 
     try {
-      // Note: In a real implementation, you'd upload images to a storage service first
-      // For now, we'll simulate by passing image data
+      // Get placeholder image URLs based on category (for File objects only)
+      const getPlaceholderImageUrl = (index: number) => {
+        const categoryId = formData.categoryId;
+        const category = categories?.results?.find(c => c.id === categoryId);
+        const categoryName = category?.name?.toLowerCase() || '';
+
+        // Category-specific Unsplash images
+        const imageQueries: { [key: string]: string } = {
+          'electronics': 'electronics,gadgets,technology',
+          'textbooks': 'books,textbook,study',
+          'furniture': 'furniture,dorm,room',
+          'clothing': 'fashion,clothes,apparel',
+          'sports': 'sports,equipment,fitness',
+          'housing': 'apartment,room,housing',
+          'vehicles': 'car,vehicle,transportation',
+          'services': 'service,help,work'
+        };
+
+        const query = Object.keys(imageQueries).find(key => categoryName.includes(key)) || 'product';
+        const searchQuery = imageQueries[query] || 'product,item,marketplace';
+
+        return `https://images.unsplash.com/photo-${1500000000000 + index}?auto=format&fit=crop&w=800&q=80&${searchQuery}`;
+      };
+
       const listingData = {
         title: formData.title.trim(),
         description: formData.description.trim(),
@@ -160,11 +209,12 @@ export default function CreateListingPage() {
         campus_id: formData.campusId || user?.campusId,
         location: formData.location.trim() || undefined,
         is_negotiable: formData.isNegotiable,
-        // images: formData.images.length > 0 ? formData.images.map((file, index) => ({
-        //   image_url: URL.createObjectURL(file), // In real app, this would be the uploaded URL
-        //   display_order: index,
-        //   is_primary: index === 0
-        // })) : undefined,
+        images: formData.images.length > 0 ? formData.images.map((imageOrUrl, index) => ({
+          // If it's a string (URL), use it directly; if it's a File, use placeholder
+          image_url: typeof imageOrUrl === 'string' ? imageOrUrl : getPlaceholderImageUrl(index),
+          display_order: index,
+          is_primary: index === 0
+        })) : undefined,
       };
 
       const result = await createListing({
@@ -177,8 +227,8 @@ export default function CreateListingPage() {
       if (listingId) {
         router.push(`/listings/${listingId}`);
       } else {
-        // Fallback: redirect to listings page if ID is not available
-        router.push('/listings');
+        // Fallback: redirect to my listings page if ID is not available
+        router.push('/my-listings');
       }
     } catch (err: unknown) {
       const error = err as {data?: {message?: string}};
@@ -366,7 +416,9 @@ export default function CreateListingPage() {
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Images (Optional)
               </label>
-              <div className="border-2 border-dashed border-gray-300 rounded-md p-6 hover:border-blue-400 transition-colors">
+
+              {/* File Upload */}
+              <div className="border-2 border-dashed border-gray-300 rounded-md p-6 hover:border-blue-400 transition-colors mb-4">
                 <div className="text-center">
                   <ImageIcon className="mx-auto h-12 w-12 text-gray-400" />
                   <div className="mt-2">
@@ -385,6 +437,30 @@ export default function CreateListingPage() {
                     <p className="text-gray-500"> or drag and drop</p>
                   </div>
                   <p className="text-xs text-gray-500">PNG, JPG, GIF up to 5MB each (max 5 images)</p>
+                </div>
+              </div>
+
+              {/* URL Input */}
+              <div className="mb-4">
+                <label className="block text-xs font-medium text-gray-600 mb-2">
+                  Or paste an image URL
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="url"
+                    value={imageUrlInput}
+                    onChange={(e) => setImageUrlInput(e.target.value)}
+                    onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addImageUrl())}
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                    placeholder="https://example.com/image.jpg"
+                  />
+                  <button
+                    type="button"
+                    onClick={addImageUrl}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-medium"
+                  >
+                    Add URL
+                  </button>
                 </div>
               </div>
 

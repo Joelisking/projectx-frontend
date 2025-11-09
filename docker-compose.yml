@@ -1,0 +1,19 @@
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - BACKEND_URL=http://web:8000  # Pass as build arg
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - BACKEND_URL=http://web:8000  # Also set at runtime for server-side code
+    restart: unless-stopped
+    networks:
+      - campus_marketplace_backend_campus_network
+
+networks:
+  campus_marketplace_backend_campus_network:
+    external: true

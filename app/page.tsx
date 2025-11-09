@@ -1,12 +1,17 @@
 'use client';
 
+import { useState } from 'react';
 import { useMarketplaceListingsListQuery, useMarketplaceCategoriesListQuery } from '@/lib/redux/api/openapi.generated';
 import { Filter, ShoppingBag } from 'lucide-react';
 import Header from '@/components/navigation/header';
 import ListingCard from '@/components/listings/listing-card';
 
 export default function Home() {
-  const { data: listings, isLoading: loadingListings } = useMarketplaceListingsListQuery({});
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+
+  const { data: listings, isLoading: loadingListings } = useMarketplaceListingsListQuery({
+    category: selectedCategory || undefined,
+  });
   const { data: categories, isLoading: loadingCategories } = useMarketplaceCategoriesListQuery({});
 
   return (
@@ -33,9 +38,30 @@ export default function Home() {
                   </div>
                 ) : (
                   <ul className="space-y-2">
+                    {/* All Categories Option */}
+                    <li>
+                      <button
+                        onClick={() => setSelectedCategory(null)}
+                        className={`w-full text-left py-1 text-sm transition-colors ${
+                          selectedCategory === null
+                            ? 'text-blue-600 font-semibold'
+                            : 'text-gray-600 hover:text-blue-600'
+                        }`}
+                      >
+                        All Categories
+                      </button>
+                    </li>
+
                     {categories?.results?.slice(0, 8).map((category) => (
                       <li key={category.id}>
-                        <button className="w-full text-left text-gray-600 hover:text-blue-600 py-1 text-sm">
+                        <button
+                          onClick={() => setSelectedCategory(category.id || null)}
+                          className={`w-full text-left py-1 text-sm transition-colors ${
+                            selectedCategory === category.id
+                              ? 'text-blue-600 font-semibold'
+                              : 'text-gray-600 hover:text-blue-600'
+                          }`}
+                        >
                           {category.name}
                         </button>
                       </li>
@@ -49,7 +75,11 @@ export default function Home() {
             <div className="flex-1">
               <div className="bg-white rounded-lg shadow">
                 <div className="px-6 py-4 border-b border-gray-200">
-                  <h2 className="text-lg font-semibold text-gray-900">Recent Listings</h2>
+                  <h2 className="text-lg font-semibold text-gray-900">
+                    {selectedCategory
+                      ? `${categories?.results?.find((cat) => cat.id === selectedCategory)?.name || 'Category'} Listings`
+                      : 'Recent Listings'}
+                  </h2>
                 </div>
 
                 {loadingListings ? (

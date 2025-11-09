@@ -1,8 +1,17 @@
 // Use relative URL in browser to leverage Next.js rewrite proxy
 // This avoids CORS issues during development
-export const BASE_URL = typeof window !== 'undefined' 
-  ? '/api/v1' 
-  : 'http://localhost:8000/api/v1';
+const getBackendUrl = () => {
+  if (typeof window !== 'undefined') {
+    // Client-side: use relative URL to leverage Next.js rewrite
+    return '/api/v1';
+  }
+  // Server-side: use environment variable or fallback to localhost
+  return process.env.BACKEND_URL 
+    ? `${process.env.BACKEND_URL}/api/v1`
+    : 'http://localhost:8000/api/v1';
+};
+
+export const BASE_URL = getBackendUrl();
 export const ORYX_ERP_COOKIE_ID = 'campusmarketplace_auth_token';
 
 export const ITEM_CONDITIONS = {

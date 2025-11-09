@@ -1,8 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useDispatch, useSelector } from 'react-redux';
 import Link from 'next/link';
 import { Eye, EyeOff, ShoppingBag } from 'lucide-react';
@@ -16,11 +16,22 @@ export default function LoginPage() {
   });
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
+  const [sessionExpired, setSessionExpired] = useState(false);
 
   const dispatch = useDispatch();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const isLoading = useSelector(selectAuthLoading);
   const error = useSelector(selectAuthError);
+
+  useEffect(() => {
+    // Check if redirected due to session expiration
+    if (searchParams.get('session_expired') === 'true') {
+      setSessionExpired(true);
+      // Clear the query param after 5 seconds
+      setTimeout(() => setSessionExpired(false), 5000);
+    }
+  }, [searchParams]);
 
   const [loginMutation] = useUsersLoginMutation();
 
@@ -98,6 +109,14 @@ export default function LoginPage() {
         </div>
 
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
+          {sessionExpired && (
+            <div className="bg-yellow-50 border border-yellow-200 rounded-md p-4">
+              <p className="text-yellow-800 text-sm">
+                <strong>Session Expired:</strong> Your session has expired. Please log in again.
+              </p>
+            </div>
+          )}
+
           {error && (
             <div className="bg-red-50 border border-red-200 rounded-md p-4">
               <p className="text-red-800 text-sm">{error}</p>

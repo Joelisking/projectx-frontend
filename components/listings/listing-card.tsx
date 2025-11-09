@@ -109,6 +109,7 @@ export default function ListingCard({ listing, isInWishlist = false, onWishlistT
               alt={listing.title}
               width={300}
               height={300}
+              unoptimized
               className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
             />
           ) : (

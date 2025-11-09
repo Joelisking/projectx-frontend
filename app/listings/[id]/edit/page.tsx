@@ -4,7 +4,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useSelector } from 'react-redux';
-import { ArrowLeft, X, MapPin, DollarSign, Tag, FileText } from 'lucide-react';
+import { ArrowLeft, X, MapPin, DollarSign, Tag, FileText, Upload, Image as ImageIcon, Trash2 } from 'lucide-react';
 import { selectUser } from '@/lib/redux/slices/auth';
 import {
   useMarketplaceListingsReadQuery,
@@ -14,6 +14,7 @@ import {
   Listing
 } from '@/lib/redux/api/openapi.generated';
 import Header from '@/components/navigation/header';
+import Image from 'next/image';
 
 interface EditListingForm {
   title: string;
@@ -54,11 +55,19 @@ export default function EditListingPage() {
 
   const [newTag, setNewTag] = useState('');
   const [errors, setErrors] = useState<Partial<EditListingForm>>({});
+  const [currentImages, setCurrentImages] = useState<Array<{id: string; url: string; isPrimary: boolean}>>([]);
+  const [newImages, setNewImages] = useState<(File | string)[]>([]); // Support both File and URL string
+  const [imagePreviewUrls, setImagePreviewUrls] = useState<string[]>([]);
+  const [imageUrlInput, setImageUrlInput] = useState('');
 
   useEffect(() => {
     if (listing) {
       // Check if user owns this listing
-      if (listing.seller !== user?.id) {
+      const sellerId = typeof listing.seller === 'string'
+        ? listing.seller
+        : (listing.seller as any)?.id;
+
+      if (sellerId !== user?.id) {
         router.push('/my-listings');
         return;
       }
@@ -76,8 +85,93 @@ export default function EditListingPage() {
         is_negotiable: listing.is_negotiable || false,
         status: listing.status || 'active'
       });
+
+      // Load current images
+      if (listing.images && listing.images.length > 0) {
+        setCurrentImages(
+          listing.images.map((img: any) => ({
+            id: img.id || '',
+            url: img.image_url || '',
+            isPrimary: img.is_primary || false
+          }))
+        );
+      }
     }
   }, [listing, user, router]);
+
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+
+    const fileArray = Array.from(files);
+    const validFiles = fileArray.filter(file => {
+      const isImage = file.type.startsWith('image/');
+      const isUnder5MB = file.size <= 5 * 1024 * 1024;
+      return isImage && isUnder5MB;
+    });
+
+    if (validFiles.length + currentImages.length + newImages.length > 10) {
+      alert('Maximum 10 images allowed');
+      return;
+    }
+
+    setNewImages(prev => [...prev, ...validFiles]);
+
+    // Create preview URLs
+    const urls = validFiles.map(file => URL.createObjectURL(file));
+    setImagePreviewUrls(prev => [...prev, ...urls]);
+  };
+
+  const addImageUrl = () => {
+    if (!imageUrlInput.trim()) return;
+
+    // Basic URL validation
+    try {
+      new URL(imageUrlInput);
+    } catch {
+      alert('Please enter a valid URL');
+      return;
+    }
+
+    if (currentImages.length + newImages.length >= 10) {
+      alert('Maximum 10 images allowed');
+      return;
+    }
+
+    setNewImages(prev => [...prev, imageUrlInput.trim()]);
+    setImagePreviewUrls(prev => [...prev, imageUrlInput.trim()]);
+    setImageUrlInput('');
+  };
+
+  const removeCurrentImage = (imageId: string) => {
+    setCurrentImages(prev => prev.filter(img => img.id !== imageId));
+  };
+
+  const removeNewImage = (index: number) => {
+    const imageToRemove = newImages[index];
+
+    setNewImages(prev => prev.filter((_, i) => i !== index));
+    setImagePreviewUrls(prev => {
+      // Only revoke object URL if it's a File object
+      if (typeof imageToRemove !== 'string') {
+        URL.revokeObjectURL(prev[index]);
+      }
+      return prev.filter((_, i) => i !== index);
+    });
+  };
+
+  const setPrimaryImage = (imageId: string, isNewImage: boolean) => {
+    if (isNewImage) {
+      // For new images, we'll handle this differently since they don't have IDs yet
+      return;
+    }
+    setCurrentImages(prev =>
+      prev.map(img => ({
+        ...img,
+        isPrimary: img.id === imageId
+      }))
+    );
+  };
 
   const handleInputChange = (field: keyof EditListingForm, value: any) => {
     setForm(prev => ({ ...prev, [field]: value }));
@@ -126,6 +220,50 @@ export default function EditListingPage() {
     if (!validateForm()) return;
 
     try {
+      // Get placeholder image URLs for new images based on category
+      const getPlaceholderImageUrl = (index: number) => {
+        const categoryId = form.category;
+        const category = categories?.results?.find(c => c.id === categoryId);
+        const categoryName = category?.name?.toLowerCase() || '';
+
+        // Category-specific Unsplash images
+        const imageQueries: { [key: string]: string } = {
+          'electronics': 'electronics,gadgets,technology',
+          'textbooks': 'books,textbook,study',
+          'furniture': 'furniture,dorm,room',
+          'clothing': 'fashion,clothes,apparel',
+          'sports': 'sports,equipment,fitness',
+          'housing': 'apartment,room,housing',
+          'vehicles': 'car,vehicle,transportation',
+          'services': 'service,help,work'
+        };
+
+        const query = Object.keys(imageQueries).find(key => categoryName.includes(key)) || 'product';
+        const searchQuery = imageQueries[query] || 'product,item,marketplace';
+
+        return `https://images.unsplash.com/photo-${1500000000000 + index}?auto=format&fit=crop&w=800&q=80&${searchQuery}`;
+      };
+
+      // Combine current images and new images
+      const allImages = [
+        ...currentImages.map((img, index) => ({
+          image_url: img.url,
+          display_order: index,
+          is_primary: img.isPrimary
+        })),
+        ...newImages.map((imageOrUrl, index) => ({
+          // If it's a string (URL), use it directly; if it's a File, use placeholder
+          image_url: typeof imageOrUrl === 'string' ? imageOrUrl : getPlaceholderImageUrl(currentImages.length + index),
+          display_order: currentImages.length + index,
+          is_primary: false
+        }))
+      ];
+
+      // If there are images, make sure at least one is primary
+      if (allImages.length > 0 && !allImages.some(img => img.is_primary)) {
+        allImages[0].is_primary = true;
+      }
+
       await updateListing({
         id: listingId,
         listing: {
@@ -138,9 +276,10 @@ export default function EditListingPage() {
           location: form.location || undefined,
           is_negotiable: form.is_negotiable,
           status: form.status as "active" | "sold" | "expired" | "deleted",
-          // Type assertion: API accepts tag_names even though Listing type doesn't include it
-          tag_names: form.tags
-        } as Listing & { tag_names?: string[] }
+          // Type assertion: API accepts tag_names and images even though Listing type doesn't include them
+          tag_names: form.tags,
+          images: allImages.length > 0 ? allImages : undefined
+        } as Listing & { tag_names?: string[]; images?: Array<{image_url: string; display_order: number; is_primary: boolean}> }
       }).unwrap();
 
       router.push('/my-listings');
@@ -304,6 +443,148 @@ export default function EditListingPage() {
                   Price is negotiable
                 </label>
               </div>
+            </div>
+          </div>
+
+          {/* Images */}
+          <div className="bg-white rounded-lg shadow p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+              <ImageIcon className="h-5 w-5 mr-2" />
+              Images
+            </h2>
+
+            <div className="space-y-4">
+              {/* Current Images */}
+              {currentImages.length > 0 && (
+                <div>
+                  <h3 className="text-sm font-medium text-gray-700 mb-2">Current Images</h3>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    {currentImages.map((image, index) => (
+                      <div key={image.id} className="relative group">
+                        <div className="aspect-square relative rounded-lg overflow-hidden border-2 border-gray-200">
+                          <Image
+                            src={image.url}
+                            alt={`Image ${index + 1}`}
+                            fill
+                            unoptimized
+                            className="object-cover"
+                          />
+                          {image.isPrimary && (
+                            <div className="absolute top-2 left-2 bg-blue-600 text-white text-xs px-2 py-1 rounded">
+                              Primary
+                            </div>
+                          )}
+                        </div>
+                        <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-40 transition-opacity rounded-lg flex items-center justify-center">
+                          <div className="opacity-0 group-hover:opacity-100 transition-opacity space-x-2">
+                            {!image.isPrimary && (
+                              <button
+                                type="button"
+                                onClick={() => setPrimaryImage(image.id, false)}
+                                className="bg-white text-gray-800 px-3 py-1 rounded text-xs hover:bg-gray-100"
+                              >
+                                Set Primary
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => removeCurrentImage(image.id)}
+                              className="bg-red-600 text-white p-2 rounded hover:bg-red-700"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* New Images Preview */}
+              {newImages.length > 0 && (
+                <div>
+                  <h3 className="text-sm font-medium text-gray-700 mb-2">New Images (will be uploaded)</h3>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    {imagePreviewUrls.map((url, index) => (
+                      <div key={index} className="relative group">
+                        <div className="aspect-square relative rounded-lg overflow-hidden border-2 border-green-200">
+                          <Image
+                            src={url}
+                            alt={`New image ${index + 1}`}
+                            fill
+                            unoptimized
+                            className="object-cover"
+                          />
+                          <div className="absolute top-2 left-2 bg-green-600 text-white text-xs px-2 py-1 rounded">
+                            New
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => removeNewImage(index)}
+                          className="absolute top-2 right-2 bg-red-600 text-white p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Upload Button */}
+              {(currentImages.length + newImages.length) < 10 && (
+                <div>
+                  <label className="block mb-4">
+                    <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-blue-500 cursor-pointer transition-colors">
+                      <Upload className="mx-auto h-12 w-12 text-gray-400" />
+                      <p className="mt-2 text-sm text-gray-600">
+                        Click to upload images or drag and drop
+                      </p>
+                      <p className="text-xs text-gray-500 mt-1">
+                        PNG, JPG, GIF up to 5MB each (max {10 - currentImages.length - newImages.length} more)
+                      </p>
+                    </div>
+                    <input
+                      type="file"
+                      multiple
+                      accept="image/*"
+                      onChange={handleImageSelect}
+                      className="hidden"
+                    />
+                  </label>
+
+                  {/* URL Input */}
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-2">
+                      Or paste an image URL
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type="url"
+                        value={imageUrlInput}
+                        onChange={(e) => setImageUrlInput(e.target.value)}
+                        onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addImageUrl())}
+                        className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                        placeholder="https://example.com/image.jpg"
+                      />
+                      <button
+                        type="button"
+                        onClick={addImageUrl}
+                        className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-medium"
+                      >
+                        Add URL
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <p className="text-sm text-gray-500 mt-4">
+                {currentImages.length + newImages.length}/10 images.
+                {currentImages.length === 0 && newImages.length === 0 && ' Add at least one image to help buyers see your item.'}
+              </p>
             </div>
           </div>
 

@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Plus, Edit, Trash2, Eye, TrendingUp, DollarSign, MoreVertical } from 'lucide-react';
 import {
-  useMarketplaceListingsListQuery,
+  useMarketplaceListingsMyListingsQuery,
   useMarketplaceListingsDeleteMutation,
   useMarketplaceListingsPartialUpdateMutation
 } from '@/lib/redux/api/openapi.generated';
@@ -17,12 +17,23 @@ export default function MyListingsPage() {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [listingToDelete, setListingToDelete] = useState<string | null>(null);
 
-  const { data: listingsData, isLoading, refetch } = useMarketplaceListingsListQuery({});
+  const { data: listingsData, isLoading, refetch } = useMarketplaceListingsMyListingsQuery({});
 
   const [deleteListing] = useMarketplaceListingsDeleteMutation();
   const [updateListing] = useMarketplaceListingsPartialUpdateMutation();
 
-  const listings = listingsData?.results || [];
+  // Cast to proper type since backend returns ListingListRead format
+  const listings = (listingsData?.results || []) as Array<{
+    id?: string;
+    title: string;
+    price: string;
+    condition: string;
+    status?: string;
+    seller?: any;
+    primary_image?: string;
+    created_at?: string;
+    view_count?: number;
+  }>;
 
   const filteredListings = listings.filter(listing => {
     if (activeTab === 'all') return true;
@@ -47,19 +58,11 @@ export default function MyListingsPage() {
 
   const handleMarkAsSold = async (listingId: string) => {
     try {
-      const listing = listings.find(l => l.id === listingId);
-      if (!listing) return;
-
       await updateListing({
         id: listingId,
         listing: {
-          title: listing.title,
-          description: '', // ListingListRead doesn't have description, use empty string
-          price: listing.price,
-          condition: listing.condition,
-          category_id: '', // ListingListRead doesn't have category_id, use empty string
           status: 'sold'
-        }
+        } as any
       }).unwrap();
       refetch();
     } catch (error) {
@@ -69,19 +72,11 @@ export default function MyListingsPage() {
 
   const handleReactivate = async (listingId: string) => {
     try {
-      const listing = listings.find(l => l.id === listingId);
-      if (!listing) return;
-
       await updateListing({
         id: listingId,
         listing: {
-          title: listing.title,
-          description: '', // ListingListRead doesn't have description, use empty string
-          price: listing.price,
-          condition: listing.condition,
-          category_id: '', // ListingListRead doesn't have category_id, use empty string
           status: 'active'
-        }
+        } as any
       }).unwrap();
       refetch();
     } catch (error) {
