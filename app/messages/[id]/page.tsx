@@ -1,24 +1,25 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, FormEvent } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useSelector } from 'react-redux';
 import { ArrowLeft, Send, User, Paperclip, MoreVertical, AlertTriangle } from 'lucide-react';
 import { selectUser } from '@/lib/redux/slices/auth';
+import { WebSocketProvider, useWebSocketContext } from '@/lib/websocket-context';
 import {
   useMessagingConversationsReadQuery,
-  useMessagingMessagesListQuery,
+  useMessagingConversationsMessagesQuery,
   useMessagingMessagesCreateMutation,
-  useMarketplaceListingsReadQuery,
-  useUsersReadQuery
+  useMarketplaceListingsReadQuery
 } from '@/lib/redux/api/openapi.generated';
 import Header from '@/components/navigation/header';
 
-export default function ConversationPage() {
+function ConversationPageContent() {
   const params = useParams();
   const router = useRouter();
   const conversationId = params.id as string;
   const user = useSelector(selectUser);
+  const { connectToConversation, disconnect, lastMessage, sendMessage: sendWsMessage, readyState } = useWebSocketContext();
 
   const [message, setMessage] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -27,63 +28,142 @@ export default function ConversationPage() {
     id: conversationId
   });
 
-  const { data: messagesData, isLoading: loadingMessages, refetch: refetchMessages } = useMessagingMessagesListQuery({
-    search: conversationId
+  const { data: messagesData, isLoading: loadingMessages, refetch: refetchMessages } = useMessagingConversationsMessagesQuery({
+    id: conversationId
   });
 
   const [sendMessage, { isLoading: isSending }] = useMessagingMessagesCreateMutation();
 
-  const messages = messagesData?.results || [];
-  const otherParticipantId = conversation?.participant_1 === user?.id ? conversation?.participant_2 : conversation?.participant_1;
+  const messages = Array.isArray(messagesData) ? messagesData : [];
 
-  // Fetch other participant's user data
-  const { data: otherParticipant } = useUsersReadQuery(
-    { id: otherParticipantId || '' },
-    { skip: !otherParticipantId }
-  );
+  // Get other participant - handle both object and ID formats
+  const getOtherParticipant = () => {
+    if (!conversation) return null;
+
+    const participant1 = conversation.participant_1;
+    const participant2 = conversation.participant_2;
+    const participant1Id = typeof participant1 === 'object' ? participant1?.id : participant1;
+    const participant2Id = typeof participant2 === 'object' ? participant2?.id : participant2;
+
+    if (participant1Id === user?.id) {
+      return typeof participant2 === 'object' ? participant2 : null;
+    } else {
+      return typeof participant1 === 'object' ? participant1 : null;
+    }
+  };
+
+  const otherParticipant = getOtherParticipant();
 
   // Get related listing if this conversation is about a specific listing
+  const listingId = conversation?.listing
+    ? typeof conversation.listing === 'object'
+      ? (conversation.listing as any)?.id
+      : conversation.listing
+    : '';
+
   const { data: relatedListing } = useMarketplaceListingsReadQuery(
-    { id: conversation?.listing || '' },
-    { skip: !conversation?.listing }
+    { id: listingId || '' },
+    { skip: !listingId }
   );
 
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
 
+  // Connect to WebSocket
   useEffect(() => {
-    // Poll for new messages every 5 seconds
-    const interval = setInterval(() => {
-      refetchMessages();
-    }, 5000);
+    if (conversationId) {
+      console.log('Connecting to conversation:', conversationId);
+      connectToConversation(conversationId);
+    }
+    return () => {
+      console.log('Disconnecting from conversation');
+      disconnect();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversationId]);
 
-    return () => clearInterval(interval);
-  }, [refetchMessages]);
+  // Log WebSocket readyState changes
+  useEffect(() => {
+    const states = ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'];
+    console.log('WebSocket readyState changed to:', states[readyState] || readyState);
+  }, [readyState]);
+
+  // Handle incoming WebSocket messages
+  useEffect(() => {
+    if (lastMessage !== null) {
+      const data = JSON.parse(lastMessage.data);
+      // You might want to update the messages list here directly or refetch
+      // For simplicity, we'll refetch for now, but ideally we should append to the list
+      refetchMessages();
+    }
+  }, [lastMessage, refetchMessages]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  const handleSendMessage = async (e: React.FormEvent) => {
+  const handleSendMessage = async (e: FormEvent) => {
     e.preventDefault();
-    if (!message.trim() || isSending) return;
+    if (!message.trim()) return;
 
     const messageText = message.trim();
     setMessage('');
 
-    try {
-      await sendMessage({
+    console.log('=== SENDING MESSAGE ===');
+    console.log('Message:', messageText);
+    console.log('WebSocket readyState:', readyState);
+    console.log('ReadyState meaning:', readyState === 0 ? 'CONNECTING' : readyState === 1 ? 'OPEN' : readyState === 2 ? 'CLOSING' : readyState === 3 ? 'CLOSED' : 'UNINSTANTIATED');
+
+    // Check if WebSocket is connected
+    if (readyState !== 1) {
+      console.error('❌ WebSocket is not connected! Cannot send message.');
+      console.log('Attempting to use HTTP API fallback...');
+
+      // Get receiver ID from conversation
+      const receiverId = otherParticipant?.id;
+      if (!receiverId) {
+        console.error('❌ Cannot determine receiver ID');
+        return;
+      }
+
+      console.log('Receiver ID:', receiverId);
+
+      const payload = {
         messageCreate: {
-          receiver_id: otherParticipantId || '',
+          receiver_id: receiverId,
           message_text: messageText
         }
-      }).unwrap();
+      };
+      console.log('Sending payload:', JSON.stringify(payload, null, 2));
 
-      refetchMessages();
+      // Fallback to HTTP API
+      try {
+        const result = await sendMessage(payload);
+        console.log('✅ Message sent via HTTP API');
+        console.log('Response:', result);
+
+        // Force immediate refetch
+        await refetchMessages();
+        console.log('Messages refetched');
+      } catch (error: any) {
+        console.error('❌ Failed to send message via HTTP:', error);
+        if (error.data) {
+          console.error('Error details:', error.data);
+        }
+        if (error.status) {
+          console.error('Error status:', error.status);
+        }
+      }
+      return;
+    }
+
+    // Send via WebSocket
+    try {
+      sendWsMessage(JSON.stringify({ message: messageText }));
+      console.log('✅ Message sent via WebSocket');
     } catch (error) {
-      console.error('Failed to send message:', error);
-      setMessage(messageText); // Restore message on error
+      console.error('❌ Error sending message via WebSocket:', error);
     }
   };
 
@@ -215,9 +295,9 @@ export default function ConversationPage() {
           <div className="max-w-4xl mx-auto">
             <div className="flex items-center space-x-4">
               <div className="shrink-0">
-                {relatedListing.images?.find(img => img.is_primary)?.image_url ? (
+                {relatedListing.images?.find((img: any) => img.is_primary)?.image_url ? (
                   <img
-                    src={relatedListing.images?.find(img => img.is_primary)?.image_url}
+                    src={relatedListing.images?.find((img: any) => img.is_primary)?.image_url}
                     alt={relatedListing.title}
                     className="h-12 w-12 rounded-lg object-cover"
                   />
@@ -259,8 +339,10 @@ export default function ConversationPage() {
               <p className="text-gray-500">No messages yet. Start the conversation!</p>
             </div>
           ) : (
-            messages.map((msg, index) => {
-              const isOwnMessage = msg.sender === user?.id;
+            messages.map((msg: any, index: number) => {
+              // Handle sender as either object or ID
+              const senderId = typeof msg.sender === 'object' ? msg.sender?.id : msg.sender;
+              const isOwnMessage = senderId === user?.id;
               const showAvatar = index === 0 || messages[index - 1]?.sender !== msg.sender;
 
               return (
@@ -293,11 +375,10 @@ export default function ConversationPage() {
                     {/* Message */}
                     <div>
                       <div
-                        className={`px-4 py-2 rounded-lg ${
-                          isOwnMessage
-                            ? 'bg-blue-600 text-white'
-                            : 'bg-white text-gray-900 border border-gray-200'
-                        }`}
+                        className={`px-4 py-2 rounded-lg ${isOwnMessage
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-white text-gray-900 border border-gray-200'
+                          }`}
                       >
                         <p className="text-sm">{msg.message_text}</p>
                       </div>
@@ -355,5 +436,13 @@ export default function ConversationPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function ConversationPage() {
+  return (
+    <WebSocketProvider>
+      <ConversationPageContent />
+    </WebSocketProvider>
   );
 }

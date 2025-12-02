@@ -1,37 +1,62 @@
 'use client';
 
-import { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSelector } from 'react-redux';
 import { MessageCircle, Search, User, Clock, ChevronRight } from 'lucide-react';
 import { selectUser } from '@/lib/redux/slices/auth';
-import { 
+import {
   useMessagingConversationsListQuery,
-  useUsersReadQuery,
   ConversationRead
 } from '@/lib/redux/api/openapi.generated';
 import Header from '@/components/navigation/header';
 
 export default function MessagesPage() {
+  console.log('=== MESSAGES PAGE RENDER ===');
+
   const router = useRouter();
   const user = useSelector(selectUser);
   const [searchQuery, setSearchQuery] = useState('');
 
-  const { data: conversationsData, isLoading } = useMessagingConversationsListQuery({});
+  console.log('User from selector:', user);
 
-  const conversations = conversationsData?.results || [];
+  const { data: conversationsData, isLoading, error } = useMessagingConversationsListQuery({});
 
-  const filteredConversations = conversations.filter(conversation => {
-    if (!searchQuery.trim()) return true;
+  console.log('Query result:', { data: conversationsData, isLoading, error });
 
-    // For now, we'll search by conversation ID and last message text
-    const lastMessageText = conversation.last_message?.toLowerCase() || '';
+  const conversations = React.useMemo(() => {
+    console.log('Processing conversations data:', conversationsData);
 
-    return lastMessageText.includes(searchQuery.toLowerCase());
-  });
+    if (!conversationsData || !conversationsData.results) {
+      console.log('No data or no results');
+      return [];
+    }
+
+    if (!Array.isArray(conversationsData.results)) {
+      console.error('Results is not an array!', conversationsData.results);
+      return [];
+    }
+
+    console.log('Found', conversationsData.results.length, 'conversations');
+    return conversationsData.results;
+  }, [conversationsData]);
+
+  const filteredConversations = React.useMemo(() => {
+    if (!Array.isArray(conversations)) return [];
+
+    if (!searchQuery.trim()) return conversations;
+
+    return conversations.filter(conversation => {
+      const lastMessageText = conversation.last_message?.toLowerCase() || '';
+      return lastMessageText.includes(searchQuery.toLowerCase());
+    });
+  }, [conversations, searchQuery]);
 
   const formatTimeAgo = (dateString: string) => {
+    if (!dateString) return '';
     const date = new Date(dateString);
+    if (isNaN(date.getTime())) return '';
+
     const now = new Date();
     const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
 
@@ -42,18 +67,23 @@ export default function MessagesPage() {
     return date.toLocaleDateString();
   };
 
-  const getOtherParticipantId = (conversation: ConversationRead) => {
-    return conversation.participant_1 === user?.id ? conversation.participant_2 : conversation.participant_1;
+  const getOtherParticipant = (conversation: ConversationRead) => {
+    const participant1 = conversation.participant_1;
+    const participant2 = conversation.participant_2;
+    const participant1Id = typeof participant1 === 'object' ? participant1?.id : participant1;
+    const participant2Id = typeof participant2 === 'object' ? participant2?.id : participant2;
+
+    if (participant1Id === user?.id) {
+      return typeof participant2 === 'object' ? participant2 : null;
+    } else {
+      return typeof participant1 === 'object' ? participant1 : null;
+    }
   };
 
-  // Conversation Item Component to handle user data fetching
+  // Conversation Item Component
   const ConversationItem = ({ conversation }: { conversation: ConversationRead }) => {
-    const otherParticipantId = getOtherParticipantId(conversation);
-    const { data: otherParticipant } = useUsersReadQuery(
-      { id: otherParticipantId || '' },
-      { skip: !otherParticipantId }
-    );
-    
+    const otherParticipant = getOtherParticipant(conversation);
+
     const lastMessage = conversation.last_message;
     const unreadCount = parseInt(conversation.unread_count || '0');
 
@@ -65,7 +95,6 @@ export default function MessagesPage() {
       >
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-4 flex-1 min-w-0">
-            {/* Avatar */}
             <div className="shrink-0">
               {otherParticipant?.profile_picture_url ? (
                 <img
@@ -82,19 +111,14 @@ export default function MessagesPage() {
               )}
             </div>
 
-            {/* Content */}
             <div className="flex-1 min-w-0">
               <div className="flex items-center justify-between mb-1">
-                <h3 className={`text-sm font-medium truncate ${
-                  unreadCount > 0 ? 'text-gray-900' : 'text-gray-700'
-                }`}>
+                <h3 className={`text-sm font-medium truncate ${unreadCount > 0 ? 'text-gray-900' : 'text-gray-700'}`}>
                   {otherParticipant
                     ? otherParticipant.first_name && otherParticipant.last_name
                       ? `${otherParticipant.first_name} ${otherParticipant.last_name}`
                       : otherParticipant.username || 'Unknown User'
-                    : otherParticipantId 
-                      ? `User ${otherParticipantId.slice(0, 8)}...`
-                      : 'Unknown User'}
+                    : 'Unknown User'}
                 </h3>
                 {conversation.last_message_at && (
                   <div className="flex items-center text-xs text-gray-500">
@@ -105,10 +129,8 @@ export default function MessagesPage() {
               </div>
 
               {lastMessage ? (
-                <p className={`text-sm truncate ${
-                  unreadCount > 0 ? 'text-gray-900 font-medium' : 'text-gray-600'
-                }`}>
-                  {lastMessage}
+                <p className={`text-sm truncate ${unreadCount > 0 ? 'text-gray-900 font-medium' : 'text-gray-600'}`}>
+                  {typeof lastMessage === 'object' && lastMessage.text ? lastMessage.text : typeof lastMessage === 'string' ? lastMessage : 'New message'}
                 </p>
               ) : (
                 <p className="text-sm text-gray-500 italic">No messages yet</p>
@@ -116,7 +138,6 @@ export default function MessagesPage() {
             </div>
           </div>
 
-          {/* Right side */}
           <div className="flex items-center space-x-2 ml-4">
             {unreadCount > 0 && (
               <span className="bg-blue-600 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
@@ -131,6 +152,7 @@ export default function MessagesPage() {
   };
 
   if (isLoading) {
+    console.log('Showing loading state');
     return (
       <div className="min-h-screen bg-gray-50">
         <Header />
@@ -148,12 +170,13 @@ export default function MessagesPage() {
     );
   }
 
+  console.log('Rendering main view with', filteredConversations.length, 'conversations');
+
   return (
     <div className="min-h-screen bg-gray-50">
       <Header />
 
       <div className="max-w-4xl mx-auto px-4 py-8">
-        {/* Header */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8">
           <div>
             <h1 className="text-2xl font-bold text-gray-900 mb-2">Messages</h1>
@@ -161,7 +184,6 @@ export default function MessagesPage() {
           </div>
         </div>
 
-        {/* Search */}
         <div className="bg-white rounded-lg shadow mb-6 p-4">
           <div className="relative">
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -177,7 +199,6 @@ export default function MessagesPage() {
           </div>
         </div>
 
-        {/* Conversations List */}
         <div className="bg-white rounded-lg shadow">
           {filteredConversations.length > 0 ? (
             <div className="divide-y divide-gray-200">

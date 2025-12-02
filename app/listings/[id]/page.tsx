@@ -124,28 +124,50 @@ export default function ListingDetailPage() {
   };
 
   const handleMakeOffer = async () => {
-    if (!offerAmount.trim() || !listing?.id) return;
+    console.log('=== MAKING OFFER ===');
+    console.log('offerAmount:', offerAmount);
+    console.log('listing?.id:', listing?.id);
+
+    if (!offerAmount.trim() || !listing?.id) {
+      console.error('Validation failed - missing offerAmount or listing ID');
+      return;
+    }
 
     const amount = parseFloat(offerAmount);
-    if (isNaN(amount) || amount <= 0) return;
+    console.log('Parsed amount:', amount);
+
+    if (isNaN(amount) || amount <= 0) {
+      console.error('Invalid amount:', amount);
+      return;
+    }
+
+    const payload = {
+      offer: {
+        listing_id: listing.id,
+        offer_amount: amount.toString(),
+        message: offerMessage.trim() || undefined
+      }
+    };
+    console.log('Sending payload:', JSON.stringify(payload, null, 2));
 
     setIsOfferLoading(true);
     try {
-      await makeOffer({
-        offer: {
-          listing_id: listing.id,
-          offer_amount: amount.toString(),
-          message: offerMessage.trim() || undefined
-        }
-      }).unwrap();
+      const result = await makeOffer(payload).unwrap();
+      console.log('✅ Offer submitted successfully!', result);
 
       setOfferAmount('');
       setOfferMessage('');
       setShowOfferForm(false);
       // Show success message
       alert('Offer submitted successfully!');
-    } catch (error) {
-      console.error('Failed to make offer:', error);
+    } catch (error: any) {
+      console.error('❌ Failed to make offer:', error);
+      if (error.data) {
+        console.error('Error details:', error.data);
+      }
+      if (error.status) {
+        console.error('Error status:', error.status);
+      }
       alert('Failed to submit offer. Please try again.');
     } finally {
       setIsOfferLoading(false);

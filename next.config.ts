@@ -1,6 +1,6 @@
 import type { NextConfig } from "next";
 
-const backendUrl = process.env.BACKEND_URL || 'http://localhost:8000';
+const backendUrl = process.env.BACKEND_URL || 'http://localhost:8001';
 
 // Debug: log the backend URL being used (only visible during build)
 console.log('[Next.js Config] Using BACKEND_URL:', backendUrl);

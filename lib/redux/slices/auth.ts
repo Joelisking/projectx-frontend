@@ -80,11 +80,12 @@ export const authSlice = createSlice({
 
 
 // Selectors
-export const selectAuth = (state: ReduxState) => state.persistedReducer.auth;
-export const selectUser = (state: ReduxState) => state.persistedReducer.auth?.user;
-export const selectIsAuthenticated = (state: ReduxState) => state.persistedReducer.auth?.isAuthenticated;
-export const selectAuthLoading = (state: ReduxState) => state.persistedReducer.auth?.isLoading;
-export const selectAuthError = (state: ReduxState) => state.persistedReducer.auth?.error;
+export const selectAuth = (state: ReduxState) => state?.persistedReducer?.auth || initialState;
+export const selectUser = (state: ReduxState) => state?.persistedReducer?.auth?.user || null;
+export const selectToken = (state: ReduxState) => state?.persistedReducer?.auth?.accessToken;
+export const selectIsAuthenticated = (state: ReduxState) => state?.persistedReducer?.auth?.isAuthenticated || false;
+export const selectAuthLoading = (state: ReduxState) => state?.persistedReducer?.auth?.isLoading || false;
+export const selectAuthError = (state: ReduxState) => state?.persistedReducer?.auth?.error || null;
 
 export const authActions = authSlice.actions;
 

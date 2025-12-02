@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import React, { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useSelector, useDispatch } from 'react-redux';
@@ -35,7 +35,14 @@ export default function Header() {
     setIsProfileMenuOpen(false);
   };
 
-  const unreadCount = unreadNotifications?.count || 0;
+  // Safe extraction of unread count
+  const unreadCount = React.useMemo(() => {
+    if (!unreadNotifications) return 0;
+    if (typeof unreadNotifications === 'object' && 'count' in unreadNotifications) {
+      return Number(unreadNotifications.count) || 0;
+    }
+    return 0;
+  }, [unreadNotifications]);
 
   return (
     <header className="bg-white shadow-sm border-b sticky top-0 z-50">
