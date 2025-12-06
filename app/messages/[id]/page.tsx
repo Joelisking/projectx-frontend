@@ -42,13 +42,13 @@ function ConversationPageContent() {
 
     const participant1 = conversation.participant_1;
     const participant2 = conversation.participant_2;
-    const participant1Id = typeof participant1 === 'object' ? participant1?.id : participant1;
-    const participant2Id = typeof participant2 === 'object' ? participant2?.id : participant2;
+    const participant1Id = typeof participant1 === 'object' ? (participant1 as any)?.id : participant1;
+    const participant2Id = typeof participant2 === 'object' ? (participant2 as any)?.id : participant2;
 
     if (participant1Id === user?.id) {
-      return typeof participant2 === 'object' ? participant2 : null;
+      return typeof participant2 === 'object' ? (participant2 as any) : null;
     } else {
-      return typeof participant1 === 'object' ? participant1 : null;
+      return typeof participant1 === 'object' ? (participant1 as any) : null;
     }
   };
 
